@@ -1,0 +1,1 @@
+-- Cac khoi do K1..K11 (SET STATISTICS IO/TIME)

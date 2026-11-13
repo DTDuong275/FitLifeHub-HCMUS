@@ -1,0 +1,34 @@
+[ĐẠT] Cú pháp DBML hợp lệ (parser @dbml/core)
+[ĐẠT] Tập bảng = 20 bảng ERD/quan hệ + 2 bảng dẫn xuất  thiếu [] thừa []
+[ĐẠT] Cột (tên, thứ tự, kiểu, NULL/NOT NULL), PK của 22 bảng (136 cột, 30 cột PK); không dùng Enum làm kiểu, không default
+[ĐẠT] 33 khóa ngoại ERD khớp (bảng.cột -> bảng.cột, đúng chiều) + 2 FK của bảng dẫn xuất  thiếu [] thừa []
+[ĐẠT] FK ghép duy nhất: DANG_KY_GOI.(MaHD, SoThuTu) -> CHI_TIET_HOA_DON.(MaHD, SoThuTu)
+[ĐẠT] Mỗi Ref có tên và tên không trùng
+[ĐẠT] UNIQUE/unique filtered index, mọi chỉ mục chuẩn (tên, cột, INCLUDE, WHERE) và tên mọi CHECK chuẩn có trong DBML
+        (số chỉ mục ghi WHERE trong Note: 10)
+[ĐẠT] 4 FK ghép vật lý (E3): bảng đích có UNIQUE đúng cột; Note bảng nguồn mô tả
+[ĐẠT] Enum (6 yêu cầu + 2 bổ sung) khớp giá trị CHECK chuẩn; không có Bảo lưu; ChucVu dùng HLV
+[ĐẠT] Note của Enum/CHECK nêu cài bằng CHECK (N'...')
+[ĐẠT] Cột dẫn xuất lưu (TongTienGoc, ThanhToanThucTe, ThanhTien, NgayKetThuc) ghi rõ trong Note cột; [Tuoi] không có cột và Note nêu không lưu
+[ĐẠT] THONG_KE_CHECKIN, DOANH_THU_NGAY ở cuối file, Note ghi bảng dẫn xuất không có trên ERD
+[ĐẠT] THONG_KE_CHECKIN có SoLuotVao và SoLuotRa (đủ tính người có mặt, E9) và Note nêu công thức lấp đầy theo SucChua
+[ĐẠT] Mã RBxx: danh mục 30 mã; mọi mã dùng trong Note đều có trong danh mục; mọi mã danh mục đều được dùng  dùng nhưng không có trong danh mục []; có trong danh mục nhưng chưa dùng []
+[ĐẠT] 14 chỉ mục đề xuất thêm, đều đánh dấu [ĐX] kèm lý do
+        + PHONG.IX_PHONG_CN
+        + DIEM_LOYALTY.IX_DL_Nam_Hang
+        + HOA_DON.IX_HD_CN_Ngay
+        + HOA_DON.IX_HD_HV_Ngay
+        + HOA_DON.IX_HD_NV_Ngay
+        + CHI_TIET_HOA_DON.IX_CT_Goi
+        + CHI_TIET_HOA_DON.IX_CT_SP
+        + DANG_KY_GOI.IX_DK_HD
+        + DANG_KY_GOI.IX_DK_HetHan
+        + NHAN_VIEN.IX_NV_CN_ChucVu
+        + LICH_HEN_PT.IX_LH_DK
+        + LICH_HEN_PT.IX_LH_HoaHong
+        + CHECK_IN.IX_CI_HV_Vao
+        + CHECK_IN.IX_CI_CN_Vao
+[ĐẠT] Không còn tên của thiết kế cũ trong bảng/cột  []
+[ĐẠT] Project có database_type: 'SQL Server'
+
+KẾT QUẢ: ĐẠT TOÀN BỘ (0 mục lỗi / 17 mục)

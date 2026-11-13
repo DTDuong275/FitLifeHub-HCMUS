@@ -1,0 +1,58 @@
+1. LƯỢC ĐỒ CHUẨN (schema.py)
+  Số bảng = 20 | số cột = 127 | số khóa chính = 20 (cột PK = 25, trong đó 5 PK ghép) | số khóa ngoại = 33 (cột FK = 34)
+  [ĐẠT] 20 quan hệ = 19 thực thể ERD + HLV_CHUNG_CHI
+  [ĐẠT] mỗi bảng có đúng một khóa chính (có ít nhất 1 cột PK)
+  [ĐẠT] mọi FK: cột tồn tại, đích là khóa chính, kiểu dữ liệu trùng khớp []
+  [ĐẠT] mọi cột có cờ F đều thuộc một FK []
+  [ĐẠT] không có FK trùng lặp
+  [ĐẠT] cột PK+FK đều có FK
+  [ĐẠT] khóa chính đều NOT NULL
+  [ĐẠT] cột UNIQUE cho phép NULL đều có unique filtered index WHERE ... IS NOT NULL []
+  [ĐẠT] 4 FK phức hợp vật lý (E3) đều trỏ tới bảng/cột tồn tại
+  [ĐẠT] FK vật lý: cột tồn tại
+  [ĐẠT] 2 bảng dẫn xuất mức logic có khai báo (không vẽ)
+
+2. HÌNH VẼ (ve_ket_qua.json) so với lược đồ
+  Hình TONG (luoc_do_tong.png, 4000 x 2368 px)
+  [ĐẠT] tập bảng trên hình = 20 bảng mong đợi
+  [ĐẠT] cột, thứ tự cột, kiểu gạch chân (PK/FK/PK+FK) của từng bảng khớp lược đồ
+  [ĐẠT] đếm trên hình: 127 cột (lược đồ 127), 25 cột PK (lược đồ 25), 34 cột FK
+  [ĐẠT] mỗi FK có đúng một đường nối: 33 FK, 33 đường vẽ, thiếu [], thừa/trùng []
+  [ĐẠT] mọi đường: bắt đầu trên ô FK, mũi tên chạm ô PK, vuông góc, không xuyên bảng []
+     [số liệu] giao cắt giữa các đường = 62 | số khúc gấp = 100
+  [ĐẠT] chiều rộng ảnh >= 3000 px (4000)
+  Hình M1 (luoc_do_mo_dun_1.png, 3400 x 1208 px)
+  [ĐẠT] tập bảng trên hình = 7 bảng mong đợi
+  [ĐẠT] cột, thứ tự cột, kiểu gạch chân (PK/FK/PK+FK) của từng bảng khớp lược đồ
+  [ĐẠT] đếm trên hình: 38 cột (lược đồ 38), 9 cột PK (lược đồ 9), 7 cột FK
+  [ĐẠT] mỗi FK có đúng một đường nối: 7 FK, 7 đường vẽ, thiếu [], thừa/trùng []
+  [ĐẠT] mọi đường: bắt đầu trên ô FK, mũi tên chạm ô PK, vuông góc, không xuyên bảng []
+     [số liệu] giao cắt giữa các đường = 2 | số khúc gấp = 16
+  [ĐẠT] chiều rộng ảnh >= 3000 px (3400)
+  Hình M2 (luoc_do_mo_dun_2.png, 3400 x 1728 px)
+  [ĐẠT] tập bảng trên hình = 10 bảng mong đợi
+  [ĐẠT] cột, thứ tự cột, kiểu gạch chân (PK/FK/PK+FK) của từng bảng khớp lược đồ
+  [ĐẠT] đếm trên hình: 47 cột (lược đồ 47), 8 cột PK (lược đồ 8), 13 cột FK
+  [ĐẠT] mỗi FK có đúng một đường nối: 12 FK, 12 đường vẽ, thiếu [], thừa/trùng []
+  [ĐẠT] mọi đường: bắt đầu trên ô FK, mũi tên chạm ô PK, vuông góc, không xuyên bảng []
+     [số liệu] giao cắt giữa các đường = 3 | số khúc gấp = 24
+  [ĐẠT] chiều rộng ảnh >= 3000 px (3400)
+  Hình M3 (luoc_do_mo_dun_3.png, 3400 x 1728 px)
+  [ĐẠT] tập bảng trên hình = 11 bảng mong đợi
+  [ĐẠT] cột, thứ tự cột, kiểu gạch chân (PK/FK/PK+FK) của từng bảng khớp lược đồ
+  [ĐẠT] đếm trên hình: 42 cột (lược đồ 42), 8 cột PK (lược đồ 8), 14 cột FK
+  [ĐẠT] mỗi FK có đúng một đường nối: 14 FK, 14 đường vẽ, thiếu [], thừa/trùng []
+  [ĐẠT] mọi đường: bắt đầu trên ô FK, mũi tên chạm ô PK, vuông góc, không xuyên bảng []
+     [số liệu] giao cắt giữa các đường = 3 | số khúc gấp = 27
+  [ĐẠT] chiều rộng ảnh >= 3000 px (3400)
+  [ĐẠT] ba hình mô-đun cộng lại phủ đúng 33 FK, mỗi FK đúng một lần (tổng = 33)
+  [ĐẠT] ba mô-đun phân hoạch đúng 20 bảng
+
+3. FILE .drawio (đọc lại XML, không dùng dữ liệu vẽ)
+  [ĐẠT] 4 trang: ['M1', 'M2', 'M3', 'TONG']
+  [ĐẠT] trang TONG: 33 đường nối (cell nguồn FK -> cell đích PK) = 33 FK của lược đồ
+  [ĐẠT] trang M1: 7 đường nối (cell nguồn FK -> cell đích PK) = 7 FK của lược đồ
+  [ĐẠT] trang M2: 12 đường nối (cell nguồn FK -> cell đích PK) = 12 FK của lược đồ
+  [ĐẠT] trang M3: 14 đường nối (cell nguồn FK -> cell đích PK) = 14 FK của lược đồ
+
+KẾT QUẢ: ĐẠT TOÀN BỘ (0 mục lỗi)

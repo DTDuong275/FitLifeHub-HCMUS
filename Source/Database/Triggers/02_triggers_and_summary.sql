@@ -1,0 +1,1 @@
+-- Bang tong hop + trigger (chay SAU khi nap du lieu)

@@ -1,0 +1,601 @@
+// =====================================================================================
+// FitLife Hub - DBML (SQL Server) - khớp LƯỢC ĐỒ CHUẨN (LuocDoQuanHe/schema.py, LUOC_DO_CHUAN.md)
+// và ERD gốc CSDLA_v3.png (19 thực thể + HLV_CHUNG_CHI cho thuộc tính đa trị {ChungChi})
+//   20 bảng ERD/quan hệ + 2 bảng dẫn xuất mức logic (THONG_KE_CHECKIN, DOANH_THU_NGAY, không có trên ERD)
+//   33 khóa ngoại (1 FK ghép: DANG_KY_GOI(MaHD, SoThuTu) -> CHI_TIET_HOA_DON(MaHD, SoThuTu))
+//
+// QUY ƯỚC
+//  - DBML không có ENUM của SQL Server, không có unique filtered index, CHECK, cột tính, INCLUDE.
+//    Những phần đó ghi trong Note kèm mã RBxx; khi sinh SQL Server phải cài đúng như Note.
+//  - Enum chỉ để làm tài liệu: cột vẫn khai báo nvarchar(n) như lược đồ chuẩn,
+//    cài bằng CHECK (cột IN (N'...', ...)). Không dùng Enum làm kiểu cột.
+//  - Index đánh dấu [ĐX] là đề xuất thêm cho vấn đề 1-5 của đề, không có trong lược đồ chuẩn.
+//  - Lược đồ chuẩn không khai báo IDENTITY và DEFAULT nên file này không thêm (xem "Quyết định cần xác nhận").
+//  - FK ghép vật lý (E3) thay cho FK đơn cùng mối liên kết: (MaHD,SoThuTu,MaGoi), (MaDK,MaHV), (MaPhong,MaCN).
+//    Ref ở cuối file giữ 33 FK logic; FK ghép vật lý và UNIQUE đích của chúng mô tả ở Note của bảng.
+//
+// DANH MỤC RÀNG BUỘC RBxx (mã mới, thay toàn bộ mã RB của báo cáo v2 vì bản v2 bám thiết kế cũ)
+//  RB01 CK_CN_Gio: GioMoCua < GioDongCua                     RB02 Miền giá trị cài bằng CHECK (mọi Enum bên dưới)
+//  RB03 Unique filtered index cho cột cho phép NULL          RB04 Thanh toán -> cập nhật DIEM_LOYALTY bằng 1 UPDATE theo PK (E1)
+//  RB05 Dòng DIEM_LOYALTY năm mới / hội viên mới (E1)         RB06 HANG_HOI_VIEN: UNIQUE(NguongChiTieu), có hạng ngưỡng 0
+//  RB07 CHI_TIET_HOA_DON: Loai/MaGoi/MaSP loại trừ (E4)       RB08 DANG_KY_GOI <-> CHI_TIET_HOA_DON: FK ghép, số gói = SoLuong, MaGoi trùng (E3,E4)
+//  RB09 HOA_DON: TongTienGoc = SUM(ThanhTien), ThanhToanThucTe (E5)   RB10 CHI_TIET_HOA_DON.ThanhTien, DonGia chốt (E5)
+//  RB11 DANG_KY_GOI.NgayKetThuc lưu có chủ đích, không bảo lưu (E5,E7)  RB12 DANG_KY_GOI cùng MaHV, MaCN với HOA_DON; hủy hóa đơn => hủy gói (E3)
+//  RB13 HOA_DON.MaCN = chi nhánh của NV lập tại NgayLap (E3,E6)  RB14 Mỗi hóa đơn có ít nhất một dòng chi tiết
+//  RB15 CHECK_IN: một lượt chưa check-out mỗi hội viên (E10)   RB16 Xác thực check-in < 50 ms bằng IX_DK_XacThuc (E10)
+//  RB17 CHECK_IN: MaHV, MaCN đồng nhất (E3)                    RB18 LICH_HEN_PT: MaHV = DANG_KY_GOI.MaHV (E3)
+//  RB19 Chống overbooking (E2,E7)                              RB20 Đặt lịch: số lịch Đã đặt <= BuoiConLai (E7)
+//  RB21 Đặt lịch: HLV công tác tại chi nhánh vào ngày hẹn (E6,E7)  RB22 DANH_GIA_PT: 1 - (0..1), chỉ lịch Đã hoàn thành
+//  RB23 LICH_SU_DIEU_CHUYEN: khoảng liên tiếp, một bản ghi mở (E6)  RB24 NHAN_VIEN.MaCN = chi nhánh bản ghi đang mở (E6)
+//  RB25 Hoa hồng PT theo chi nhánh từng giai đoạn (E6, vấn đề 5)    RB26 Chuyên biệt hóa ChucVu = N'HLV' <=> có HUAN_LUYEN_VIEN (E8)
+//  RB27 THONG_KE_CHECKIN: người có mặt, tỷ lệ lấp đầy (E9)    RB28 DOANH_THU_NGAY: cập nhật khi thanh toán/hủy
+//  RB29 Mỗi chi nhánh đúng một quản lý: ĐỀ KHÔNG NÊU, chưa cài, chờ xác nhận
+//  RB30 Kế thừa bản cũ, chờ xác nhận: chi nhánh chỉ đăng ký gói/có phòng thuộc loại dịch vụ mà CHI_NHANH_DICH_VU cung cấp
+// =====================================================================================
+
+Project FitLifeHub {
+  database_type: 'SQL Server'
+  Note: '''
+  FitLife Hub, 12 chi nhánh. Lược đồ quan hệ dẫn xuất từ ERD CSDLA_v3.png.
+  Hạng hội viên xét theo năm dương lịch (E1): hạng hiện tại = MaHang của dòng DIEM_LOYALTY có NamXet = YEAR(GETDATE()). HOI_VIEN không có cột hạng.
+  '''
+}
+
+// ================= ENUM (chỉ làm tài liệu; SQL Server cài bằng CHECK (cột IN (N'...'))) =================
+
+// DANG_KY_GOI.TrangThai. Không có Bảo lưu (E7). Cài: CK_DK_TrangThai CHECK (TrangThai IN (N'Hoạt động', N'Hết hạn', N'Hủy')) (RB02)
+Enum TrangThaiDK {
+  "Hoạt động"
+  "Hết hạn"
+  "Hủy"
+}
+
+// LICH_HEN_PT.TrangThai. Cài: CK_LH_TrangThai CHECK (TrangThai IN (N'Đã đặt', N'Đã hoàn thành', N'Hủy')) (RB02)
+Enum TrangThaiLH {
+  "Đã đặt"
+  "Đã hoàn thành"
+  "Hủy"
+}
+
+// HOA_DON.TrangThai. Cài: CK_HD_TrangThai CHECK (TrangThai IN (N'Đã thanh toán', N'Hủy')) (RB02)
+Enum TrangThaiHD {
+  "Đã thanh toán"
+  "Hủy"
+}
+
+// HOA_DON.HinhThucThanhToan. Cài: CK_HD_HinhThuc CHECK (HinhThucThanhToan IN (N'Tiền mặt', N'VNPay', N'Thẻ')) (RB02)
+Enum HinhThucThanhToan {
+  "Tiền mặt"
+  "VNPay"
+  "Thẻ"
+}
+
+// NHAN_VIEN.ChucVu. Nhãn ERD là PT, đã chốt đổi thành HLV (E8). Cài: CK_NV_ChucVu CHECK (ChucVu IN (N'HLV', N'Lễ tân', N'Quản lý', N'Bán hàng')) (RB02)
+Enum ChucVuNV {
+  "HLV"
+  "Lễ tân"
+  "Quản lý"
+  "Bán hàng"
+}
+
+// CHI_TIET_HOA_DON.Loai. Cài: CK_CT_Loai CHECK (Loai IN (N'Gói', N'Sản phẩm')) (RB02), cộng CK_CT_XOR (RB07)
+Enum LoaiChiTiet {
+  "Gói"
+  "Sản phẩm"
+}
+
+// CHI_NHANH_DICH_VU.TrangThai (giá trị do nhóm đề xuất, ERD không nêu). Cài: CK_CNDV_TrangThai (RB02)
+Enum TrangThaiCNDV {
+  "Hoạt động"
+  "Tạm ngưng"
+}
+
+// HOI_VIEN.GioiTinh. Cài: CK_HV_GioiTinh CHECK (GioiTinh IN (N'Nam', N'Nữ', N'Khác')) (RB02)
+Enum GioiTinhHV {
+  "Nam"
+  "Nữ"
+  "Khác"
+}
+
+// ================= DANH MỤC & CHI NHÁNH =================
+
+Table LOAI_DICH_VU {
+  MaLoai smallint [pk, not null]
+  TenLoai nvarchar(50) [not null, unique, note: 'Khóa thay thế (AK). Gym / Yoga / GroupX / PT 1-1 / Spa / Sauna / Cửa hàng']
+  MoTa nvarchar(255) [null]
+
+  Note: 'Dùng chung cho dịch vụ của chi nhánh (CHI_NHANH_DICH_VU), loại phòng (PHONG) và loại gói (GOI_DICH_VU).'
+}
+
+Table CHI_NHANH {
+  MaCN smallint [pk, not null]
+  TenCN nvarchar(100) [not null]
+  SoNha nvarchar(30) [not null, note: 'DiaChi (tổng hợp) tách thành SoNha, Duong, Quan, ThanhPho']
+  Duong nvarchar(100) [not null]
+  Quan nvarchar(50) [not null]
+  ThanhPho nvarchar(50) [not null]
+  SoDienThoai varchar(15) [not null, unique, note: 'Khóa thay thế (AK), NOT NULL nên dùng UNIQUE thường']
+  GioMoCua time(0) [not null]
+  GioDongCua time(0) [not null]
+
+  Note: '''
+  RB01: CK_CN_Gio CHECK (GioMoCua < GioDongCua), giả định chi nhánh không mở qua nửa đêm.
+  RB29: đề liệt kê "Quản lý chi nhánh" là chức vụ nhưng KHÔNG nói mỗi chi nhánh đúng một quản lý nên chưa cài. Nếu được duyệt: kiểm tra cuối giao dịch (trigger) số NHAN_VIEN ChucVu = N'Quản lý' ConLamViec = 1 có MaCN này đúng bằng 1.
+  RB30: dịch vụ của chi nhánh lấy từ CHI_NHANH_DICH_VU.
+  '''
+}
+
+Table CHI_NHANH_DICH_VU {
+  MaCN smallint [not null]
+  MaLoai smallint [not null]
+  TrangThai nvarchar(20) [not null, note: 'Enum TrangThaiCNDV; CK_CNDV_TrangThai (RB02)']
+
+  indexes {
+    (MaCN, MaLoai) [pk]
+  }
+
+  Note: 'N-N có thuộc tính (CHI_NHANH "cung cấp" LOAI_DICH_VU): khóa ghép (MaCN, MaLoai). CHECK: CK_CNDV_TrangThai (RB02).'
+}
+
+Table PHONG {
+  MaPhong int [pk, not null]
+  MaCN smallint [not null]
+  MaLoai smallint [not null, note: 'Loại phòng (liên kết "loại phòng")']
+  TenPhong nvarchar(100) [not null]
+  SucChua smallint [not null, note: 'CK_PHONG_SucChua: SucChua > 0']
+  ConHoatDong bit [not null]
+
+  indexes {
+    (MaPhong, MaCN) [unique, name: 'UQ_PHONG_Phong_CN', note: 'Chỉ để làm đích của FK ghép vật lý CHECK_IN(MaPhong, MaCN) -> PHONG(MaPhong, MaCN) (E3, RB17)']
+    (MaCN, ConHoatDong) [name: 'IX_PHONG_CN', note: '[ĐX] INCLUDE (SucChua). Mẫu số tỷ lệ lấp đầy = SUM(SucChua) phòng ConHoatDong = 1 theo chi nhánh (RB27, vấn đề 3)']
+  }
+
+  Note: '''
+  CHECK: CK_PHONG_SucChua (SucChua > 0).
+  RB30 (kế thừa, chờ xác nhận): PHONG.MaLoai phải thuộc loại dịch vụ chi nhánh có trong CHI_NHANH_DICH_VU (trigger). ERD: CHI_NHANH 1 - "có phòng" - 1..N PHONG; LOAI_DICH_VU 1 - "loại phòng" - 0..N PHONG.
+  '''
+}
+
+// ================= GÓI DỊCH VỤ =================
+
+Table GOI_DICH_VU {
+  MaGoi int [pk, not null]
+  TenGoi nvarchar(100) [not null]
+  MaLoai smallint [not null]
+  ThoiHanThang smallint [not null, note: 'CK_GOI_ThoiHan: ThoiHanThang > 0 (đề: 3 / 6 / 12 tháng)']
+  SoBuoi smallint [not null, note: 'CK_GOI_SoBuoi: SoBuoi >= 0. 0 = gói không có buổi PT (đề: "số buổi PT (nếu có)")']
+  GiaTien decimal(12,0) [not null, note: 'CK_GOI_Gia: GiaTien >= 0']
+  ConHieuLuc bit [not null]
+
+  Note: 'CHECK: CK_GOI_ThoiHan, CK_GOI_SoBuoi, CK_GOI_Gia. ERD: LOAI_DICH_VU 1 - "phân loại" - 0..N GOI_DICH_VU.'
+}
+
+// ================= SẢN PHẨM & TỒN KHO =================
+
+Table SAN_PHAM {
+  MaSP int [pk, not null]
+  TenSP nvarchar(150) [not null]
+  GiaBan decimal(12,0) [not null, note: 'CK_SP_Gia: GiaBan >= 0']
+  Loai nvarchar(50) [not null, note: 'Whey protein, bình nước, thảm yoga...']
+  DonViTinh nvarchar(20) [not null]
+  ConBan bit [not null]
+
+  Note: 'CHECK: CK_SP_Gia.'
+}
+
+Table TON_KHO {
+  MaCN smallint [not null]
+  MaSP int [not null]
+  SoLuong int [not null, note: 'CK_TK_SoLuong: SoLuong >= 0']
+  NgayCapNhat datetime2(0) [not null]
+
+  indexes {
+    (MaCN, MaSP) [pk, note: 'MaCN đứng trước vì báo cáo tồn kho theo chi nhánh; tra theo MaSP dùng FK index nếu cần']
+  }
+
+  Note: '''
+  N-N có thuộc tính (SAN_PHAM "tồn kho", CHI_NHANH "lưu kho"): khóa ghép (MaCN, MaSP). CHECK: CK_TK_SoLuong (RB02).
+  Bán sản phẩm trừ SoLuong bằng một UPDATE có điều kiện SoLuong >= số lượng bán (CK_TK_SoLuong chặn bán vượt tồn) và ghi NgayCapNhat; hủy hóa đơn hoàn lại cùng số lượng (báo cáo QT4, QT5). Không có RB riêng.
+  '''
+}
+
+// ================= HỘI VIÊN & LOYALTY =================
+
+Table HANG_HOI_VIEN {
+  MaHang smallint [pk, not null]
+  TenHang nvarchar(20) [not null, unique, note: 'Khóa thay thế (AK). Silver / Gold / Platinum']
+  NguongChiTieu decimal(15,0) [not null, note: 'Tổng chi tiêu năm tối thiểu để đạt hạng; Silver = 0 (RB06)']
+
+  indexes {
+    (NguongChiTieu) [unique, name: 'UQ_HANG_Nguong', note: 'Ràng buộc nhóm đề xuất (RB06): để ánh xạ chi tiêu -> hạng xác định']
+  }
+
+  Note: 'CHECK: CK_HANG_Nguong (NguongChiTieu >= 0). RB06: UNIQUE(NguongChiTieu) và có đúng một hạng ngưỡng 0 (Silver), để mọi mức chi tiêu đều có hạng.'
+}
+
+Table HOI_VIEN {
+  MaHV int [pk, not null]
+  Ho nvarchar(50) [not null, note: 'HoTen (tổng hợp) tách thành Ho, TenDem, Ten']
+  TenDem nvarchar(50) [null]
+  Ten nvarchar(50) [not null]
+  SoDienThoai varchar(15) [not null, unique, note: 'Khóa thay thế (AK), NOT NULL nên dùng UNIQUE thường']
+  Email varchar(100) [null, note: 'AK cho phép NULL: unique FILTERED index UQ_HV_Email WHERE Email IS NOT NULL (RB03), không dùng unique thường']
+  CCCD char(12) [null, note: 'AK cho phép NULL: unique FILTERED index UQ_HV_CCCD WHERE CCCD IS NOT NULL (RB03), không dùng unique thường']
+  GioiTinh nvarchar(3) [not null, note: 'Enum GioiTinhHV; CK_HV_GioiTinh (RB02)']
+  NgaySinh date [not null]
+  NgayDangKy date [not null]
+
+  indexes {
+    (Email) [unique, name: 'UQ_HV_Email', note: 'unique filtered index WHERE Email IS NOT NULL (RB03)']
+    (CCCD) [unique, name: 'UQ_HV_CCCD', note: 'unique filtered index WHERE CCCD IS NOT NULL (RB03)']
+  }
+
+  Note: '''
+  CHECK: CK_HV_GioiTinh (RB02), CK_HV_NgaySinh (NgaySinh <= NgayDangKy).
+  [Tuoi] là thuộc tính dẫn xuất trên ERD, KHÔNG lưu (E5): phụ thuộc ngày hiện tại nên không thể PERSISTED, lưu sẽ sai theo thời gian. Tính bằng view/hàm từ NgaySinh.
+  RB05: khi đăng ký hội viên mới tạo luôn dòng DIEM_LOYALTY(MaHV, năm hiện tại, 0, 0, MaHang = hạng ngưỡng 0).
+  '''
+}
+
+Table DIEM_LOYALTY {
+  MaHV int [not null]
+  NamXet smallint [not null, note: 'Khóa bộ phận; CK_DL_Nam: NamXet BETWEEN 2000 AND 2100']
+  TongChiTieuNam decimal(15,0) [not null, note: 'CK_DL_ChiTieu: >= 0']
+  DiemThuong int [not null, note: 'CK_DL_Diem: >= 0. 1 điểm = 100.000 VNĐ: cộng FLOOR(ThanhToanThucTe / 100000) mỗi hóa đơn']
+  NgayCapNhat datetime2(0) [not null]
+  MaHang smallint [not null, note: 'Hạng của năm NamXet (liên kết "xếp hạng"); dẫn xuất từ TongChiTieuNam và NguongChiTieu, lưu có chủ đích (vấn đề 4)']
+
+  indexes {
+    (MaHV, NamXet) [pk, note: 'Thanh toán = 1 UPDATE theo khóa chính này (RB04)']
+    (NamXet, MaHang) [name: 'IX_DL_Nam_Hang', note: '[ĐX] Tỷ lệ phân bổ hạng Silver/Gold/Platinum toàn hệ thống theo năm (cấp công ty)']
+  }
+
+  Note: '''
+  Thực thể yếu của HOI_VIEN ("tích lũy", nét đứt): khóa (MaHV, NamXet). CHECK: CK_DL_ChiTieu, CK_DL_Diem, CK_DL_Nam.
+  RB04 (E1): thanh toán hóa đơn = MỘT câu UPDATE theo khóa chính (MaHV, NamXet = YEAR(NgayLap)) WITH (UPDLOCK, HOLDLOCK): cộng TongChiTieuNam += ThanhToanThucTe, DiemThuong += FLOOR(ThanhToanThucTe / 100000), gán MaHang = hạng có NguongChiTieu lớn nhất <= tổng mới. Không SUM lại các hóa đơn. Hủy hóa đơn trừ ngược đúng dòng năm lập hóa đơn, tính lại hạng, CHECK >= 0 chặn âm.
+  RB05: job 0h ngày 1/1 tạo sẵn dòng năm mới (hạng ngưỡng 0, chi tiêu 0, điểm 0); hội viên mới có dòng khi đăng ký. Hạng hiện tại = MaHang của dòng NamXet = YEAR(GETDATE()).
+  Giả định: "tổng chi tiêu trong năm" của đề = năm dương lịch; "12 tháng qua" ở vấn đề 4 là cách tính của hệ thống cũ. Hệ quả: hạng về mức thấp nhất mỗi 1/1. Phương án dự phòng nếu giảng viên yêu cầu 12 tháng trượt: đổi NamXet thành NamThang, hạng = tổng tối đa 12 dòng tháng.
+  '''
+}
+
+// ================= HÓA ĐƠN & GÓI ĐĂNG KÝ =================
+
+Table HOA_DON {
+  MaHD bigint [pk, not null]
+  NgayLap datetime2(0) [not null]
+  MaNV int [not null, note: 'Nhân viên lập (liên kết "lập")']
+  MaHV int [not null, note: 'Hội viên thanh toán (liên kết "Thanh toán"); bản số ERD bắt buộc']
+  MaCN smallint [not null, note: 'Chi nhánh lập (liên kết "lập tại")']
+  TongTienGoc decimal(15,0) [not null, note: 'Dẫn xuất [x], LƯU: cột thường = SUM(CHI_TIET_HOA_DON.ThanhTien); thủ tục lập hóa đơn ghi, trigger trên CHI_TIET_HOA_DON kiểm tra khớp (RB09)']
+  GiamGia decimal(15,0) [not null]
+  ThanhToanThucTe decimal(15,0) [not null, note: 'Dẫn xuất [x], LƯU: cột tính PERSISTED = TongTienGoc - GiamGia (RB09)']
+  HinhThucThanhToan nvarchar(20) [not null, note: 'Enum HinhThucThanhToan; CK_HD_HinhThuc (RB02)']
+  TrangThai nvarchar(20) [not null, note: 'Enum TrangThaiHD; CK_HD_TrangThai (RB02)']
+
+  indexes {
+    (MaCN, NgayLap) [name: 'IX_HD_CN_Ngay', note: '[ĐX] INCLUDE (TrangThai, ThanhToanThucTe). Doanh thu theo chi nhánh/tháng/quý/năm và nguồn nạp DOANH_THU_NGAY (RB28, vấn đề 3)']
+    (MaHV, NgayLap) [name: 'IX_HD_HV_Ngay', note: '[ĐX] Tra hóa đơn theo hội viên; hủy hóa đơn tìm lại dòng loyalty năm lập (RB04)']
+    (MaNV, NgayLap) [name: 'IX_HD_NV_Ngay', note: '[ĐX] FK "lập"; kiểm RB13 nhân viên lập thuộc chi nhánh tại NgayLap']
+  }
+
+  Note: '''
+  CHECK: CK_HD_HinhThuc, CK_HD_TrangThai (RB02); CK_HD_GiamGia: GiamGia >= 0 AND GiamGia <= TongTienGoc (RB09).
+  RB09 (E5): TongTienGoc lưu có chủ đích (vượt quan hệ nên không dùng cột tính được; báo cáo doanh thu khỏi nối CHI_TIET_HOA_DON). ThanhToanThucTe là cột tính PERSISTED để đọc nhanh, đánh chỉ mục, làm đầu vào của điểm loyalty. Vi phạm 3NF có chủ đích: ThanhToanThucTe <- TongTienGoc, GiamGia.
+  RB13 (E3, E6): HOA_DON.MaCN = chi nhánh của MaNV tại ngày NgayLap theo LICH_SU_DIEU_CHUYEN (trigger).
+  RB14: mỗi hóa đơn có ít nhất một dòng CHI_TIET_HOA_DON; thủ tục lập hóa đơn kiểm tra trước COMMIT (CHECK không đếm được dòng khác).
+  RB28: TrangThai = N'Đã thanh toán' mới tính vào DOANH_THU_NGAY; hủy hóa đơn trừ ngược theo ngày lập.
+  '''
+}
+
+Table CHI_TIET_HOA_DON {
+  MaHD bigint [not null]
+  SoThuTu smallint [not null, note: 'Khóa bộ phận']
+  Loai nvarchar(10) [not null, note: 'Enum LoaiChiTiet: Gói / Sản phẩm; CK_CT_Loai (RB02)']
+  MaGoi int [null, note: 'NULL khi Loai = Sản phẩm (RB07)']
+  MaSP int [null, note: 'NULL khi Loai = Gói (RB07)']
+  SoLuong int [not null, note: 'CK_CT_SoLuong: > 0. Dòng Gói: số DANG_KY_GOI sinh ra = SoLuong (RB08)']
+  DonGia decimal(12,0) [not null, note: 'CK_CT_DonGia: >= 0. Giá chốt lúc bán, không dẫn xuất từ GiaBan/GiaTien hiện tại (RB10)']
+  ThanhTien decimal(15,0) [not null, note: 'Dẫn xuất [x], LƯU: cột tính PERSISTED = SoLuong * DonGia (RB10)']
+
+  indexes {
+    (MaHD, SoThuTu) [pk]
+    (MaHD, SoThuTu, MaGoi) [unique, name: 'UQ_CT_HD_STT_Goi', note: 'Đích của FK ghép vật lý DANG_KY_GOI(MaHD, SoThuTu, MaGoi) (E3, RB08). MaGoi NULL (dòng sản phẩm) nên không thể bị DANG_KY_GOI tham chiếu']
+    (MaGoi) [name: 'IX_CT_Goi', note: '[ĐX] filtered WHERE MaGoi IS NOT NULL, INCLUDE (SoLuong, ThanhTien). Gói bán chạy / doanh thu cao nhất 6 tháng gần nhất; FK "gồm"']
+    (MaSP) [name: 'IX_CT_SP', note: '[ĐX] filtered WHERE MaSP IS NOT NULL, INCLUDE (SoLuong, ThanhTien). Sản phẩm bán chạy; FK "gồm"']
+  }
+
+  Note: '''
+  Thực thể yếu của HOA_DON ("gồm"): khóa (MaHD, SoThuTu). CHECK: CK_CT_Loai (RB02), CK_CT_SoLuong, CK_CT_DonGia.
+  RB07 (E4): CK_CT_XOR CHECK ((Loai = N'Gói' AND MaGoi IS NOT NULL AND MaSP IS NULL) OR (Loai = N'Sản phẩm' AND MaSP IS NOT NULL AND MaGoi IS NULL)). ERD: "gồm" với SAN_PHAM có 0..1 phía SAN_PHAM.
+  RB08 (E4): số DANG_KY_GOI của một dòng Gói = SoLuong. Trigger AFTER INSERT chặn vượt SoLuong; thủ tục lập hóa đơn sinh đủ SoLuong dòng trong cùng giao dịch và kiểm tra bằng nhau trước COMMIT.
+  RB10 (E5): ThanhTien lưu bằng cột tính PERSISTED; vi phạm 3NF có chủ đích (ThanhTien <- SoLuong, DonGia; Loai <-> MaGoi/MaSP).
+  '''
+}
+
+Table DANG_KY_GOI {
+  MaDK bigint [pk, not null]
+  MaHV int [not null, note: 'liên kết "đăng ký"']
+  MaGoi int [not null, note: 'liên kết "được đăng ký"; dư thừa có chủ đích với CHI_TIET_HOA_DON.MaGoi, phải trùng (RB08)']
+  MaCN smallint [not null, note: 'liên kết "đăng ký tại"; phải bằng HOA_DON.MaCN (RB12)']
+  MaHD bigint [not null, note: 'Một nửa FK ghép (MaHD, SoThuTu) -> CHI_TIET_HOA_DON (liên kết "xuất ra")']
+  SoThuTu smallint [not null, note: 'Nửa còn lại của FK ghép (MaHD, SoThuTu)']
+  NgayBatDau date [not null]
+  NgayKetThuc date [not null, note: 'Dẫn xuất [x], LƯU có chủ đích: DATEADD(MONTH, GOI_DICH_VU.ThoiHanThang, NgayBatDau); cột thường vì phụ thuộc bảng khác, thủ tục đăng ký ghi (RB11)']
+  TrangThai nvarchar(20) [not null, note: 'Enum TrangThaiDK: Hoạt động / Hết hạn / Hủy; CK_DK_TrangThai (RB02). Không có Bảo lưu']
+  BuoiConLai smallint [not null, note: 'CK_DK_Buoi: >= 0']
+
+  indexes {
+    (MaDK, MaHV) [unique, name: 'UQ_DK_DK_HV', note: 'Đích của FK ghép vật lý CHECK_IN(MaDK, MaHV) và LICH_HEN_PT(MaDK, MaHV) (E3, RB17, RB18)']
+    (MaHV, TrangThai, NgayBatDau, NgayKetThuc) [name: 'IX_DK_XacThuc', note: 'INCLUDE (MaDK, MaCN, BuoiConLai). Xác thực check-in < 50 ms: một seek theo MaHV ra đúng gói còn hạn (RB16, vấn đề 1)']
+    (MaHD, SoThuTu) [name: 'IX_DK_HD', note: '[ĐX] FK "xuất ra"; đếm số DANG_KY_GOI của một dòng chi tiết (RB08)']
+    (TrangThai, NgayKetThuc) [name: 'IX_DK_HetHan', note: '[ĐX] INCLUDE (MaHV, MaCN). Hội viên sắp hết hạn gói (truy vấn gợi ý); job chuyển Hết hạn']
+  }
+
+  Note: '''
+  CHECK: CK_DK_TrangThai (RB02), CK_DK_Ngay: NgayKetThuc > NgayBatDau, CK_DK_Buoi.
+  FK ghép logic: (MaHD, SoThuTu) -> CHI_TIET_HOA_DON(MaHD, SoThuTu), mỗi dòng Gói sinh SoLuong gói (RB08).
+  FK ghép vật lý (E3, thay cho FK đơn cùng mối liên kết): (MaHD, SoThuTu, MaGoi) -> CHI_TIET_HOA_DON(MaHD, SoThuTu, MaGoi) buộc DANG_KY_GOI.MaGoi trùng gói ở dòng chi tiết (RB08).
+  RB11 (E5, E7): không có bảo lưu, không NgayBaoLuu. NgayKetThuc lưu để IX_DK_XacThuc không phải nối GOI_DICH_VU; đổi ThoiHanThang của gói sau này không ảnh hưởng gói đã bán. Vi phạm 3NF có chủ đích: (NgayBatDau, MaGoi) -> NgayKetThuc.
+  RB12 (E3): MaHV, MaCN của DANG_KY_GOI = MaHV, MaCN của HOA_DON qua CHI_TIET_HOA_DON (trigger AFTER INSERT/UPDATE). Hủy hóa đơn (HOA_DON.TrangThai = N'Hủy') thì các DANG_KY_GOI của hóa đơn chuyển N'Hủy' (thủ tục hủy hóa đơn).
+  RB30 (kế thừa, chờ xác nhận): MaCN phải cung cấp loại dịch vụ của gói (CHI_NHANH_DICH_VU, TrangThai = N'Hoạt động').
+  '''
+}
+
+// ================= NHÂN SỰ =================
+
+Table NHAN_VIEN {
+  MaNV int [pk, not null]
+  Ho nvarchar(50) [not null, note: 'HoTen (tổng hợp) tách thành Ho, TenDem, Ten']
+  TenDem nvarchar(50) [null]
+  Ten nvarchar(50) [not null]
+  SoDienThoai varchar(15) [null, note: 'AK cho phép NULL: unique FILTERED index UQ_NV_SDT WHERE SoDienThoai IS NOT NULL (RB03), không dùng unique thường']
+  ChucVu nvarchar(20) [not null, note: 'Enum ChucVuNV: HLV / Lễ tân / Quản lý / Bán hàng; CK_NV_ChucVu (RB02)']
+  LuongCoBan decimal(12,0) [not null, note: 'CK_NV_Luong: >= 0']
+  MaCN smallint [not null, note: 'Chi nhánh HIỆN TẠI (liên kết "làm việc tại"); phải bằng MaCN của bản ghi đang mở trong LICH_SU_DIEU_CHUYEN (RB24)']
+  NgayVaoLam date [not null]
+  ConLamViec bit [not null]
+
+  indexes {
+    (SoDienThoai) [unique, name: 'UQ_NV_SDT', note: 'unique filtered index WHERE SoDienThoai IS NOT NULL (RB03)']
+    (MaCN, ChucVu) [name: 'IX_NV_CN_ChucVu', note: '[ĐX] FK "làm việc tại"; danh sách nhân viên/HLV theo chi nhánh']
+  }
+
+  Note: '''
+  CHECK: CK_NV_ChucVu (RB02), CK_NV_Luong.
+  RB24 (E6): ConLamViec = 1 thì NHAN_VIEN.MaCN = LICH_SU_DIEU_CHUYEN.MaCN của bản ghi NgayKetThuc IS NULL; nghỉ việc thì đóng bản ghi (trigger). Dư thừa có chủ đích giữa hai bảng, không phải phụ thuộc hàm trong một quan hệ.
+  RB26 (E8): ChucVu = N'HLV' <=> có dòng trong HUAN_LUYEN_VIEN (trigger); không cho đổi ChucVu khỏi HLV nếu còn lịch hẹn/lịch sử.
+  RB29: chưa cài "mỗi chi nhánh đúng một quản lý" (đề không nêu), xem CHI_NHANH.
+  '''
+}
+
+Table HUAN_LUYEN_VIEN {
+  MaHLV int [pk, not null, note: 'Vừa PK vừa FK -> NHAN_VIEN.MaNV']
+  ChuyenMon nvarchar(100) [not null]
+  HoaHongMoiBuoi decimal(12,0) [not null, note: 'CK_HLV_HoaHong: >= 0']
+
+  Note: '''
+  Lớp con của NHAN_VIEN (ký hiệu U): chuyên biệt hóa partial, một lớp con, d/o không áp dụng. CHECK: CK_HLV_HoaHong.
+  RB26 (E8): NHAN_VIEN.ChucVu = N'HLV' <=> có dòng ở đây (trigger).
+  '''
+}
+
+Table HLV_CHUNG_CHI {
+  MaHLV int [not null]
+  ChungChi nvarchar(150) [not null]
+
+  indexes {
+    (MaHLV, ChungChi) [pk]
+  }
+
+  Note: 'Thuộc tính đa trị {ChungChi} của HUAN_LUYEN_VIEN (ERD không có thực thể riêng): bảng khóa ghép (MaHLV, ChungChi).'
+}
+
+Table LICH_SU_DIEU_CHUYEN {
+  MaDieuChuyen int [pk, not null]
+  MaNV int [not null, note: 'liên kết "được điều chuyển"']
+  MaCN smallint [not null, note: 'Chi nhánh ĐÍCH của giai đoạn (liên kết "tiếp nhận")']
+  NgayBatDau date [not null]
+  NgayKetThuc date [null, note: 'NULL = đang công tác tại chi nhánh này. CK_LS_Ngay: NgayKetThuc IS NULL OR NgayKetThuc >= NgayBatDau']
+  LyDo nvarchar(255) [null]
+
+  indexes {
+    (MaNV, NgayBatDau) [unique, name: 'UQ_LS_NV_Bat', note: 'Khóa thay thế (MaNV, NgayBatDau) (RB23)']
+    (MaNV) [unique, name: 'UQ_LS_NV_Mo', note: 'unique filtered index WHERE NgayKetThuc IS NULL: tối đa một bản ghi đang mở mỗi nhân viên (RB23)']
+    (MaNV, NgayBatDau) [name: 'IX_LS_TraCuu', note: 'INCLUDE (NgayKetThuc, MaCN). Tra chi nhánh của HLV tại thời điểm t và tính hoa hồng theo giai đoạn (RB21, RB25, vấn đề 5)']
+  }
+
+  Note: '''
+  CHECK: CK_LS_Ngay. Khoảng [NgayBatDau, NgayKetThuc] đóng hai đầu, độ mịn theo ngày.
+  RB23 (E6): các khoảng của một nhân viên liên tiếp, không chồng; bản ghi đầu tiên tạo khi vào làm (NgayBatDau = NgayVaoLam, LyDo = N'Vào làm'); điều chuyển = đóng bản ghi cũ + mở bản ghi mới trong một giao dịch (trigger).
+  RB25 (E6, vấn đề 5): hoa hồng PT theo chi nhánh từng giai đoạn: LICH_HEN_PT (Đã hoàn thành) nối LICH_SU_DIEU_CHUYEN ON MaNV = MaHLV AND CAST(NgayGioHen AS date) BETWEEN NgayBatDau AND ISNULL(NgayKetThuc, '9999-12-31'), nhóm theo LICH_SU_DIEU_CHUYEN.MaCN, nhân HUAN_LUYEN_VIEN.HoaHongMoiBuoi.
+  '''
+}
+
+// ================= VẬN HÀNH: LỊCH HẸN PT, ĐÁNH GIÁ, CHECK-IN =================
+
+Table LICH_HEN_PT {
+  MaLichHen bigint [pk, not null]
+  MaHV int [not null, note: 'liên kết "đặt lịch"; dư thừa có chủ đích với DANG_KY_GOI.MaHV (RB18)']
+  MaHLV int [not null, note: 'liên kết "phụ trách"']
+  MaCN smallint [not null, note: 'liên kết "diễn ra tại"; phải là chi nhánh của HLV vào ngày NgayGioHen (RB21)']
+  MaDK bigint [not null, note: 'liên kết "thuộc"']
+  NgayGioHen datetime2(0) [not null, note: 'CK_LH_Gio: DATEPART(MINUTE, NgayGioHen) = 0 AND DATEPART(SECOND, NgayGioHen) = 0 (RB19)']
+  ThoiLuong smallint [not null, note: 'CK_LH_ThoiLuong: ThoiLuong = 60 (phút) (RB19)']
+  TrangThai nvarchar(20) [not null, note: 'Enum TrangThaiLH: Đã đặt / Đã hoàn thành / Hủy; CK_LH_TrangThai (RB02)']
+
+  indexes {
+    (MaHLV, NgayGioHen) [unique, name: 'UQ_LH_HLV_Gio', note: 'unique filtered index WHERE TrangThai <> N\'Hủy\': một HLV không có hai lịch chưa hủy cùng thời điểm (RB19)']
+    (MaHV, NgayGioHen) [unique, name: 'UQ_LH_HV_Gio', note: 'unique filtered index WHERE TrangThai <> N\'Hủy\': một hội viên không đặt hai lịch chưa hủy cùng thời điểm (RB19)']
+    (MaDK, TrangThai) [name: 'IX_LH_DK', note: '[ĐX] FK "thuộc"; đếm lịch Đã đặt so với BuoiConLai (RB20)']
+    (MaHLV, NgayGioHen) [name: 'IX_LH_HoaHong', note: '[ĐX] filtered WHERE TrangThai = N\'Đã hoàn thành\', INCLUDE (MaCN). Hoa hồng và hiệu suất HLV (số buổi dạy) (RB25, vấn đề 5)']
+  }
+
+  Note: '''
+  CHECK: CK_LH_ThoiLuong, CK_LH_Gio, CK_LH_TrangThai (RB02).
+  RB19 (E2, E7) CHỐNG OVERBOOKING: mọi lịch dài 60 phút và bắt đầu tròn giờ nên hai lịch chồng khoảng thời gian khi và chỉ khi trùng NgayGioHen; do đó hai unique filtered index trên là đủ để chặn tuyệt đối, không cần trigger kiểm tra chồng khoảng. Stored procedure đặt lịch bắt lỗi 2601/2627 và trả "khung giờ đã có người đặt". Nếu sau này ThoiLuong thành tập giá trị (30/60/90) phải thêm trigger kiểm tra chồng khoảng với UPDLOCK.
+  RB20 (E7): thủ tục đặt lịch khóa DANG_KY_GOI bằng UPDLOCK và kiểm tra số lịch Đã đặt <= BuoiConLai, gói đang Hoạt động, trong hạn.
+  RB21 (E6, E7): thủ tục kiểm tra MaHLV công tác tại MaCN vào ngày NgayGioHen theo LICH_SU_DIEU_CHUYEN; giờ hẹn nằm trong GioMoCua-GioDongCua của chi nhánh kiểm trong thủ tục.
+  RB18 (E3): FK ghép vật lý (MaDK, MaHV) -> DANG_KY_GOI(MaDK, MaHV) buộc MaHV trùng hội viên của gói (đích UQ_DK_DK_HV).
+  '''
+}
+
+Table DANH_GIA_PT {
+  MaDanhGia bigint [pk, not null]
+  MaLichHen bigint [not null, note: 'Khóa thay thế (AK); quan hệ 1 - (0..1) với LICH_HEN_PT (liên kết "được đánh giá")']
+  Diem tinyint [not null, note: 'CK_DG_Diem: Diem BETWEEN 1 AND 5']
+  NhanXet nvarchar(500) [null]
+  NgayDanhGia datetime2(0) [not null]
+
+  indexes {
+    (MaLichHen) [unique, name: 'UQ_DG_LichHen', note: 'Mỗi lịch tối đa một đánh giá (RB22)']
+  }
+
+  Note: 'CHECK: CK_DG_Diem. RB22: chỉ đánh giá được lịch có TrangThai = N\'Đã hoàn thành\' (trigger).'
+}
+
+Table CHECK_IN {
+  MaCheckIn bigint [pk, not null]
+  MaHV int [not null, note: 'liên kết "check-in"; dư thừa có chủ đích với DANG_KY_GOI.MaHV (RB17)']
+  MaCN smallint [not null, note: 'liên kết "ghi nhận tại"; Chi nhánh hội viên đến tập (đề: tại bất kỳ chi nhánh nào), KHÔNG buộc bằng DANG_KY_GOI.MaCN']
+  MaPhong int [null, note: 'liên kết "vào phòng", 0..1; NULL = không vào phòng cụ thể']
+  MaDK bigint [not null, note: 'liên kết "được dùng"']
+  ThoiGianVao datetime2(0) [not null, note: 'Ứng viên partition key (RANGE theo tháng, 300.000 dòng/tháng, vấn đề 3)']
+  ThoiGianRa datetime2(0) [null, note: 'CK_CI_Ra: ThoiGianRa IS NULL OR ThoiGianRa > ThoiGianVao']
+  ThietBi nvarchar(50) [not null, note: 'Thuộc tính văn bản (cửa kiểm soát/thiết bị), KHÔNG có thực thể THIET_BI; không tham gia xác thực, không cần chỉ mục']
+
+  indexes {
+    (MaHV) [unique, name: 'UQ_CI_DangCoMat', note: 'unique filtered index WHERE ThoiGianRa IS NULL: tối đa một lượt chưa check-out mỗi hội viên, chặn quét trùng (RB15). Không chứa cột phân vùng nên không aligned (rủi ro D16)']
+    (MaHV, ThoiGianVao) [name: 'IX_CI_HV_Vao', note: '[ĐX] Lịch sử tập luyện một hội viên; hội viên lâu ngày chưa quay lại. Aligned với partition ThoiGianVao']
+    (MaCN, ThoiGianVao) [name: 'IX_CI_CN_Vao', note: '[ĐX] INCLUDE (ThoiGianRa, MaPhong). Danh sách check-in trong ngày theo khung giờ; nguồn nạp THONG_KE_CHECKIN (RB27). Aligned với partition ThoiGianVao']
+  }
+
+  Note: '''
+  CHECK: CK_CI_Ra.
+  RB16 (E10, vấn đề 1): xác thực < 50 ms = seek IX_DK_XacThuc theo MaHV (gói TrangThai = N'Hoạt động', NgayBatDau <= ngày <= NgayKetThuc) rồi INSERT vào CHECK_IN chỉ cần PK. ThietBi không tham gia, không cần chỉ mục.
+  RB15 (E10): UQ_CI_DangCoMat. Nếu phân vùng theo ThoiGianVao thì chỉ mục này không aligned (không SWITCH partition được); phương án thay: kiểm tra trong thủ tục check-in với UPDLOCK, quyết định ở bước vật lý (D16).
+  RB17 (E3): FK ghép vật lý (MaDK, MaHV) -> DANG_KY_GOI(MaDK, MaHV) buộc MaHV trùng hội viên của gói; FK ghép vật lý (MaPhong, MaCN) -> PHONG(MaPhong, MaCN) (đích UQ_PHONG_Phong_CN) buộc MaCN = PHONG.MaCN khi có phòng (MaPhong NULL thì SQL Server bỏ qua kiểm tra, đúng ý).
+  Partition (vấn đề 3): ứng viên partition function RANGE RIGHT theo ThoiGianVao (tháng); PK/clustered phải chứa ThoiGianVao khi phân vùng thật, chốt ở bước vật lý.
+  '''
+}
+
+// ================= BẢNG DẪN XUẤT MỨC LOGIC (KHÔNG CÓ TRÊN ERD) =================
+
+Table THONG_KE_CHECKIN {
+  MaCN smallint [not null]
+  Ngay date [not null]
+  Gio tinyint [not null, note: '0-23']
+  SoLuotVao int [not null, note: 'Số lượt check-in có ThoiGianVao trong giờ này']
+  SoLuotRa int [not null, note: 'Số lượt có ThoiGianRa trong giờ này']
+
+  indexes {
+    (MaCN, Ngay, Gio) [pk]
+  }
+
+  Note: '''
+  BẢNG DẪN XUẤT mức logic từ CHECK_IN, KHÔNG có trên ERD (giữ theo đề: báo cáo tỷ lệ lấp đầy theo khung giờ/chi nhánh, vấn đề 3).
+  RB27 (E9): "số lượt vào" KHÔNG phải "số người đang có mặt". Người có mặt cuối giờ h = SUM(SoLuotVao - SoLuotRa) cộng dồn từ giờ 0 của ngày đến giờ h (hoặc đếm trực tiếp trên CHECK_IN với ThoiGianVao <= t < ThoiGianRa). Tỷ lệ lấp đầy = số người có mặt / SUM(PHONG.SucChua) của phòng ConHoatDong = 1 trong chi nhánh.
+  Cập nhật bằng trigger/job từ CHECK_IN (vào: +1 ở giờ ThoiGianVao; ra: +1 ở giờ ThoiGianRa). Job cuối ngày đóng các lượt chưa check-out lúc GioDongCua để cộng dồn không rò sang ngày sau.
+  Lưu ý: lượt check-in không có MaPhong vẫn tính vào tử số cấp chi nhánh; mẫu số dùng SucChua hiện tại của phòng hoạt động. Muốn lấp đầy theo từng phòng cần thêm MaPhong (D11).
+  '''
+}
+
+Table DOANH_THU_NGAY {
+  MaCN smallint [not null]
+  Ngay date [not null]
+  TongTien decimal(15,0) [not null, note: 'SUM(HOA_DON.ThanhToanThucTe) của hóa đơn Đã thanh toán lập trong ngày']
+  SoHoaDon int [not null]
+
+  indexes {
+    (MaCN, Ngay) [pk]
+  }
+
+  Note: '''
+  BẢNG DẪN XUẤT mức logic từ HOA_DON, KHÔNG có trên ERD (doanh thu theo ngày/tháng/quý/năm theo chi nhánh và toàn hệ thống, vấn đề 3).
+  RB28: chỉ tính HOA_DON.TrangThai = N'Đã thanh toán'; hủy hóa đơn trừ ngược đúng ngày lập; cập nhật bằng trigger hoặc job cuối ngày. Doanh thu tháng/quý/năm = SUM theo Ngay.
+  '''
+}
+
+// ================= NHÓM BẢNG =================
+
+TableGroup DanhMuc_ChiNhanh {
+  LOAI_DICH_VU
+  CHI_NHANH
+  CHI_NHANH_DICH_VU
+  PHONG
+}
+
+TableGroup GoiDichVu_HoaDon {
+  GOI_DICH_VU
+  HOA_DON
+  CHI_TIET_HOA_DON
+  DANG_KY_GOI
+}
+
+TableGroup SanPham_TonKho {
+  SAN_PHAM
+  TON_KHO
+}
+
+TableGroup HoiVien_Loyalty {
+  HANG_HOI_VIEN
+  HOI_VIEN
+  DIEM_LOYALTY
+}
+
+TableGroup NhanSu {
+  NHAN_VIEN
+  HUAN_LUYEN_VIEN
+  HLV_CHUNG_CHI
+  LICH_SU_DIEU_CHUYEN
+}
+
+TableGroup VanHanh {
+  LICH_HEN_PT
+  DANH_GIA_PT
+  CHECK_IN
+}
+
+TableGroup BangDanXuat_KhongCoTrenERD {
+  THONG_KE_CHECKIN
+  DOANH_THU_NGAY
+}
+
+// ================= KHÓA NGOẠI (33, FK ở vế trái; tên quan hệ ERD ở chú thích) =================
+
+Ref FK_CNDV_CN: CHI_NHANH_DICH_VU.MaCN > CHI_NHANH.MaCN                    // cung cấp
+Ref FK_CNDV_Loai: CHI_NHANH_DICH_VU.MaLoai > LOAI_DICH_VU.MaLoai           // được cung cấp
+Ref FK_PHONG_CN: PHONG.MaCN > CHI_NHANH.MaCN                               // có phòng
+Ref FK_PHONG_Loai: PHONG.MaLoai > LOAI_DICH_VU.MaLoai                      // loại phòng
+Ref FK_GOI_Loai: GOI_DICH_VU.MaLoai > LOAI_DICH_VU.MaLoai                  // phân loại
+Ref FK_TK_SP: TON_KHO.MaSP > SAN_PHAM.MaSP                                 // tồn kho
+Ref FK_TK_CN: TON_KHO.MaCN > CHI_NHANH.MaCN                                // lưu kho
+Ref FK_DL_HV: DIEM_LOYALTY.MaHV > HOI_VIEN.MaHV                            // tích lũy (thực thể yếu, FK nằm trong PK)
+Ref FK_DL_Hang: DIEM_LOYALTY.MaHang > HANG_HOI_VIEN.MaHang                 // xếp hạng
+Ref FK_HD_NV: HOA_DON.MaNV > NHAN_VIEN.MaNV                                // lập
+Ref FK_HD_HV: HOA_DON.MaHV > HOI_VIEN.MaHV                                 // Thanh toán
+Ref FK_HD_CN: HOA_DON.MaCN > CHI_NHANH.MaCN                                // lập tại
+Ref FK_CT_HD: CHI_TIET_HOA_DON.MaHD > HOA_DON.MaHD                         // gồm (thực thể yếu, FK nằm trong PK)
+Ref FK_CT_Goi: CHI_TIET_HOA_DON.MaGoi > GOI_DICH_VU.MaGoi                  // gồm (N - 0..1, FK cho phép NULL)
+Ref FK_CT_SP: CHI_TIET_HOA_DON.MaSP > SAN_PHAM.MaSP                        // gồm (N - 0..1, FK cho phép NULL)
+Ref FK_DK_HV: DANG_KY_GOI.MaHV > HOI_VIEN.MaHV                             // đăng ký
+Ref FK_DK_Goi: DANG_KY_GOI.MaGoi > GOI_DICH_VU.MaGoi                       // được đăng ký
+Ref FK_DK_CN: DANG_KY_GOI.MaCN > CHI_NHANH.MaCN                            // đăng ký tại
+Ref FK_DK_CT: DANG_KY_GOI.(MaHD, SoThuTu) > CHI_TIET_HOA_DON.(MaHD, SoThuTu)  // xuất ra (FK ghép)
+Ref FK_NV_CN: NHAN_VIEN.MaCN > CHI_NHANH.MaCN                              // làm việc tại
+Ref FK_HLV_NV: HUAN_LUYEN_VIEN.MaHLV - NHAN_VIEN.MaNV                      // U (chuyên biệt hóa), PK đồng thời là FK
+Ref FK_CC_HLV: HLV_CHUNG_CHI.MaHLV > HUAN_LUYEN_VIEN.MaHLV                 // {ChungChi} đa trị
+Ref FK_LS_NV: LICH_SU_DIEU_CHUYEN.MaNV > NHAN_VIEN.MaNV                    // được điều chuyển
+Ref FK_LS_CN: LICH_SU_DIEU_CHUYEN.MaCN > CHI_NHANH.MaCN                    // tiếp nhận
+Ref FK_LH_CN: LICH_HEN_PT.MaCN > CHI_NHANH.MaCN                            // diễn ra tại
+Ref FK_LH_HLV: LICH_HEN_PT.MaHLV > HUAN_LUYEN_VIEN.MaHLV                   // phụ trách
+Ref FK_LH_HV: LICH_HEN_PT.MaHV > HOI_VIEN.MaHV                             // đặt lịch
+Ref FK_LH_DK: LICH_HEN_PT.MaDK > DANG_KY_GOI.MaDK                          // thuộc
+Ref FK_DG_LH: DANH_GIA_PT.MaLichHen - LICH_HEN_PT.MaLichHen                // được đánh giá (1 - 0..1, FK + UNIQUE)
+Ref FK_CI_HV: CHECK_IN.MaHV > HOI_VIEN.MaHV                                // check-in
+Ref FK_CI_CN: CHECK_IN.MaCN > CHI_NHANH.MaCN                               // ghi nhận tại
+Ref FK_CI_Phong: CHECK_IN.MaPhong > PHONG.MaPhong                          // vào phòng (0..1)
+Ref FK_CI_DK: CHECK_IN.MaDK > DANG_KY_GOI.MaDK                             // được dùng
+
+// FK của hai bảng dẫn xuất (không thuộc 33 FK của ERD)
+Ref FK_TKCI_CN: THONG_KE_CHECKIN.MaCN > CHI_NHANH.MaCN
+Ref FK_DTN_CN: DOANH_THU_NGAY.MaCN > CHI_NHANH.MaCN
